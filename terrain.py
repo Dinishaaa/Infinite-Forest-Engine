@@ -1,63 +1,156 @@
-import math
+# game.py
 from OpenGL.GL import *
+from OpenGL.GLU import *
+from OpenGL.GLUT import *
+import math
+import config as settings
 
-# --- Mathematical Noise for Infinite Terrain ---
-def get_height(x, z):
-    # Sinusoidal noise as suggested in the methodology
-    s = 0.1
-    h = (math.sin(x * s) * math.cos(z * s) * 8.0)
-    h += (math.sin(x * s * 0.5) * 4.0)
-    return h
+# --- TERRAIN MATH ---
+def get_height(x, z, temp, base_height):
+    noise = math.sin(x * 0.05) * math.cos(z * 0.05)
+    noise += (math.sin(x * 0.1) * math.sin(z * 0.1)) * 0.5
+    noise += (math.sin(x * 0.3) * math.cos(z * 0.35)) * 0.2
+    return base_height + (noise * (temp * 40.0))
 
-class ForestEngine:
-    def __init__(self, chunk_size=20):
-        self.chunk_size = chunk_size
-        self.chunks = {}
+def get_color(h, temp):
+    if h < -10 * temp: return (0.1, 0.2, 0.6)
+    elif h < -2 * temp: return (0.1, 0.4, 0.8)
+    elif h < 2: return (0.8, 0.7, 0.5)
+    elif h < 20 * temp: return (0.2, 0.6, 0.2)
+    elif h < 45 * temp: return (0.4, 0.4, 0.45)
+    else: return (0.95, 0.95, 1.0)
 
-    def draw_tree(self, x, y, z):
-        """Draws a simple procedural tree"""
-        # Trunk
-        glColor3f(0.3, 0.2, 0.1)
-        glBegin(GL_LINES)
-        glVertex3f(x, y, z); glVertex3f(x, y + 1.5, z)
-        glEnd()
-        # Leaves (Pyramid)
-        glColor3f(0.0, 0.4, 0.0)
+class SmoothChunk:
+    def __init__(self, x_o, z_o, is_menu=False):
+        self.list_id = glGenLists(1)
+        self.x_o, self.z_o, self.is_menu = x_o, z_o, is_menu
+        self.generate_mesh()
+
+    def generate_mesh(self):
+        if self.is_menu:
+            t_val, h_val = 1.2, 0.0 
+        else:
+            t_val = settings.terrain_params["temperature"]
+            h_val = settings.terrain_params["pref_height"]
+        
+        glNewList(self.list_id, GL_COMPILE)
         glBegin(GL_TRIANGLES)
-        glVertex3f(x-0.4, y+1, z-0.4); glVertex3f(x+0.4, y+1, z-0.4); glVertex3f(x, y+2.5, z)
-        glVertex3f(x-0.4, y+1, z+0.4); glVertex3f(x+0.4, y+1, z+0.4); glVertex3f(x, y+2.5, z)
-        glEnd()
-
-    def render_chunk(self, x_o, z_o):
-        """Renders a grid-based chunk with height-based biomes"""
-        glBegin(GL_TRIANGLES)
-        for i in range(self.chunk_size):
-            for j in range(self.chunk_size):
-                # World coordinates
-                x1, z1 = (x_o * self.chunk_size + i) * 2, (z_o * self.chunk_size + j) * 2
-                x2, z2 = x1 + 2, z1 + 2
+        step = 1.0 
+        for i in range(settings.CHUNK_SIZE):
+            for j in range(settings.CHUNK_SIZE):
+                x = (self.x_o * settings.CHUNK_SIZE + i) * step
+                z = (self.z_o * settings.CHUNK_SIZE + j) * step
                 
-                h1, h2, h3, h4 = get_height(x1, z1), get_height(x2, z1), get_height(x1, z2), get_height(x2, z2)
+                h1 = get_height(x, z, t_val, h_val)
+                h2 = get_height(x + step, z, t_val, h_val)
+                h3 = get_height(x, z + step, t_val, h_val)
+                h4 = get_height(x + step, z + step, t_val, h_val)
 
-                def set_color(h):
-                    if h < 0: glColor3f(0.1, 0.3, 0.7)    # Water
-                    elif h < 5: glColor3f(0.1, 0.5, 0.1)  # Forest Floor
-                    else: glColor3f(0.5, 0.5, 0.5)        # Mountains
+                glNormal3f(h1 - h2, 2.0, h1 - h3) 
+                glColor3fv(get_color(h1, t_val)); glVertex3f(x, h1, z)
+                glColor3fv(get_color(h2, t_val)); glVertex3f(x + step, h2, z)
+                glColor3fv(get_color(h3, t_val)); glVertex3f(x, h3, z + step)
 
-                # Triangle 1 & 2
-                set_color(h1); glVertex3f(x1, h1, z1)
-                set_color(h2); glVertex3f(x2, h2, z1)
-                set_color(h3); glVertex3f(x1, h3, z2)
-                set_color(h2); glVertex3f(x2, h2, z1)
-                set_color(h4); glVertex3f(x2, h4, z2)
-                set_color(h3); glVertex3f(x1, h3, z2)
+                glNormal3f(h2 - h4, 2.0, h2 - h3) 
+                glColor3fv(get_color(h2, t_val)); glVertex3f(x + step, h2, z)
+                glColor3fv(get_color(h4, t_val)); glVertex3f(x + step, h4, z + step)
+                glColor3fv(get_color(h3, t_val)); glVertex3f(x, h3, z + step)
         glEnd()
+        glEndList()
 
-        # Place trees on grass biomes
-        for i in range(0, self.chunk_size, 2):
-            for j in range(0, self.chunk_size, 2):
-                tx, tz = (x_o * self.chunk_size + i) * 2, (z_o * self.chunk_size + j) * 2
-                th = get_height(tx, tz)
-                if 0.5 < th < 4.5: # Tree height range
-                    if (math.sin(tx) + math.cos(tz)) > 1.2: # Simple spawn probability
-                        self.draw_tree(tx, th, tz)
+    def draw(self): glCallList(self.list_id)
+    def destroy(self): glDeleteLists(self.list_id, 1)
+
+class GameManager:
+    def __init__(self):
+        self.chunks = {}
+        self.cam_pos = [0, 20, 0]
+        self.cam_rot = [0, 0]
+        self.first_mouse = True
+        self.last_mx, self.last_my = 0, 0
+        self.show_overlay = False
+
+    def start(self):
+        self.chunks.clear()
+        p_h = settings.terrain_params["pref_height"]
+        t = settings.terrain_params["temperature"]
+        spawn_y = max(p_h + (t * 20) + 15, p_h + 10)
+        self.cam_pos = [0, spawn_y, 0]
+        self.cam_rot = [0, 0]
+        self.first_mouse = True
+        self.show_overlay = False
+        
+        glEnable(GL_FOG)
+        glFogfv(GL_FOG_COLOR, [0.6, 0.8, 1.0, 1.0])
+        glFogi(GL_FOG_MODE, GL_LINEAR)
+        glFogf(GL_FOG_START, 20.0)
+        self.update_fog()
+
+    def update_fog(self):
+        dist = float(settings.terrain_params["render_dist"] * settings.CHUNK_SIZE)
+        glFogf(GL_FOG_END, dist)
+
+    def update(self, window):
+        import glfw
+        
+        # Mouse Look
+        if not self.show_overlay:
+            mx, my = glfw.get_cursor_pos(window)
+            if self.first_mouse: self.last_mx, self.last_my = mx, my; self.first_mouse = False
+            
+            dx, dy = mx - self.last_mx, self.last_my - my
+            self.last_mx, self.last_my = mx, my
+            
+            self.cam_rot[0] += dx * 0.1
+            self.cam_rot[1] = max(-89, min(89, self.cam_rot[1] + dy * 0.1))
+        else:
+            mx, my = glfw.get_cursor_pos(window)
+            self.last_mx, self.last_my = mx, my
+            self.first_mouse = True
+
+        # Camera
+        glMatrixMode(GL_MODELVIEW); glLoadIdentity()
+        glRotatef(-self.cam_rot[1], 1, 0, 0)
+        glRotatef(-self.cam_rot[0], 0, 1, 0)
+        glTranslatef(-self.cam_pos[0], -self.cam_pos[1], -self.cam_pos[2])
+
+        # Movement
+        yaw_rad = math.radians(self.cam_rot[0])
+        fwd_x, fwd_z = math.sin(yaw_rad), -math.cos(yaw_rad)
+        right_x, right_z = math.cos(yaw_rad), math.sin(yaw_rad)
+
+        # USE SETTINGS SPEED
+        base_speed = settings.app_state["player_speed"]
+        speed = base_speed if not glfw.get_key(window, glfw.KEY_LEFT_SHIFT) else base_speed * 3.0
+
+        if glfw.get_key(window, glfw.KEY_W): 
+            self.cam_pos[0] += fwd_x * speed; self.cam_pos[2] += fwd_z * speed
+        if glfw.get_key(window, glfw.KEY_S): 
+            self.cam_pos[0] -= fwd_x * speed; self.cam_pos[2] -= fwd_z * speed
+        if glfw.get_key(window, glfw.KEY_A): 
+            self.cam_pos[0] -= right_x * speed; self.cam_pos[2] -= right_z * speed
+        if glfw.get_key(window, glfw.KEY_D): 
+            self.cam_pos[0] += right_x * speed; self.cam_pos[2] += right_z * speed
+            
+        if glfw.get_key(window, glfw.KEY_SPACE): self.cam_pos[1] += speed
+        if glfw.get_key(window, glfw.KEY_C): self.cam_pos[1] -= speed
+
+    def render(self):
+        cx, cz = int(self.cam_pos[0] // settings.CHUNK_SIZE), int(self.cam_pos[2] // settings.CHUNK_SIZE)
+        r_dist = settings.terrain_params["render_dist"]
+        
+        for x in range(cx - r_dist, cx + r_dist + 1):
+            for z in range(cz - r_dist, cz + r_dist + 1):
+                if (x-cx)**2 + (z-cz)**2 <= r_dist**2:
+                    if (x, z, 'game') not in self.chunks: 
+                        self.chunks[(x, z, 'game')] = SmoothChunk(x, z, is_menu=False)
+                    self.chunks[(x, z, 'game')].draw()
+        
+        keys_del = [k for k in self.chunks if k[2]=='game' and (k[0]-cx)**2+(k[1]-cz)**2 > (r_dist+1)**2]
+        for k in keys_del: self.chunks[k].destroy(); del self.chunks[k]
+
+    def regen_chunks(self):
+        for k in list(self.chunks.keys()):
+            self.chunks[k].destroy()
+            del self.chunks[k]
+        self.update_fog()

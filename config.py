@@ -1,12 +1,20 @@
-# config.py
-class Settings:
-    def __init__(self):
-        self.screen_width = 1024
-        self.screen_height = 768
-        self.fps = 60
-        self.flight_speed = 0.2  # Increase this if movement feels too slow
-        self.noise_scale = 0.08  # Higher = more rugged mountains
-        self.terrain_size = 50   # Size of the grid
-        self.render_distance = 100.0
+# settings.py
 
-settings = Settings()
+# --- CONSTANTS ---
+WINDOW_WIDTH = 1280
+WINDOW_HEIGHT = 720
+CHUNK_SIZE = 16 
+
+# --- SHARED PARAMETERS ---
+terrain_params = {
+    "temperature": 0.5,      # Chaos (0.0 to 2.0)
+    "pref_height": 10.0,     # Base height
+    "render_dist": 8         # Radius of chunks
+}
+
+# --- APP STATE ---
+app_state = {
+    "bg_fly_speed": 0.07,    # Hidden fixed background speed
+    "flight_z": 0.0,         # Animation position
+    "player_speed": 0.5      # Controlled in Settings
+}
